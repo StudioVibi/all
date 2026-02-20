@@ -1,0 +1,9 @@
+{
+  "name": "studiovibi-all",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --hot server.ts",
+    "start": "bun server.ts"
+  }
+}

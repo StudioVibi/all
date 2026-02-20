@@ -1,20 +1,7 @@
-const FAVORITES_STORAGE_KEY = "studiovibi:repo-favorites:v1";
+const DEFAULT_ORG = "StudioVibi";
+const FAVORITES_STORAGE_KEY = "studiovibi:all:favorites:v1";
 
-const config = {
-  apiBase: "",
-  org: "StudioVibi",
-  ...(window.STUDIOVIBI_LINKS_CONFIG ?? {})
-};
-
-const apiBase = String(config.apiBase || "").replace(/\/+$/, "");
-const org = String(config.org || "StudioVibi").trim();
-
-const loginLink = document.querySelector("#login-link");
-const authGate = document.querySelector("#auth-gate");
-const appShell = document.querySelector("#app-shell");
-const topActions = document.querySelector("#top-actions");
-const logoutButton = document.querySelector("#logout-button");
-const refreshButton = document.querySelector("#refresh-button");
+const authButton = document.querySelector("#auth-button");
 const searchInput = document.querySelector("#search-input");
 const statusText = document.querySelector("#status-text");
 const repoGrid = document.querySelector("#repo-grid");
@@ -24,8 +11,13 @@ const state = {
   repos: [],
   favorites: loadFavorites(),
   searchTerm: "",
-  authenticated: false,
-  user: null
+  org: DEFAULT_ORG,
+  session: {
+    authenticated: false,
+    user: null,
+    oauthConfigured: false
+  },
+  visibilityMode: "public_only"
 };
 
 function loadFavorites() {
@@ -34,14 +26,14 @@ function loadFavorites() {
     if (!raw) return new Set();
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return new Set();
-    return new Set(parsed.filter((entry) => typeof entry === "string"));
+    return new Set(parsed.filter((value) => typeof value === "string"));
   } catch {
     return new Set();
   }
 }
 
-function saveFavorites(favorites) {
-  localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify([...favorites]));
+function saveFavorites() {
+  localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify([...state.favorites]));
 }
 
 function normalize(value) {
@@ -57,52 +49,45 @@ function setStatus(message, status = "") {
   }
 }
 
-function setLoggedOutUi() {
-  state.authenticated = false;
-  state.user = null;
-  authGate.hidden = false;
-  appShell.hidden = true;
-  topActions.hidden = true;
-  searchInput.disabled = true;
-  searchInput.value = "";
-  state.searchTerm = "";
-  state.repos = [];
-  repoGrid.innerHTML = "";
-  setStatus("", "");
-}
-
-function setLoggedInUi(user) {
-  state.authenticated = true;
-  state.user = user;
-  authGate.hidden = true;
-  appShell.hidden = false;
-  topActions.hidden = false;
-  searchInput.disabled = false;
-}
-
 async function fetchJson(path, init = {}) {
-  const response = await fetch(`${apiBase}${path}`, {
+  const response = await fetch(path, {
     credentials: "include",
     ...init
   });
 
-  let data = null;
+  let payload = null;
   const contentType = response.headers.get("content-type") || "";
   if (contentType.includes("application/json")) {
-    data = await response.json();
+    payload = await response.json();
   } else {
     const text = await response.text();
-    data = text ? { error: text } : null;
+    payload = text ? { error: text } : null;
   }
 
   if (!response.ok) {
-    const message = data?.error || data?.message || `Request failed with status ${response.status}`;
+    const message = payload?.error || payload?.message || `Request failed (${response.status})`;
     const error = new Error(message);
     error.status = response.status;
     throw error;
   }
 
-  return data;
+  return payload;
+}
+
+function buildEmptyState(message) {
+  const empty = document.createElement("div");
+  empty.className = "empty-state";
+  empty.textContent = message;
+  return empty;
+}
+
+function toggleFavorite(repoUrl) {
+  if (state.favorites.has(repoUrl)) {
+    state.favorites.delete(repoUrl);
+  } else {
+    state.favorites.add(repoUrl);
+  }
+  saveFavorites();
 }
 
 function repoSort(a, b) {
@@ -114,33 +99,8 @@ function repoSort(a, b) {
   return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
 }
 
-function buildEmptyState(text) {
-  const empty = document.createElement("div");
-  empty.className = "empty-state";
-  empty.textContent = text;
-  return empty;
-}
-
-function formatUpdatedDate(isoDate) {
-  if (!isoDate) return "UPDATE: -";
-  const parsed = new Date(isoDate);
-  if (Number.isNaN(parsed.getTime())) return "UPDATE: -";
-  return `UPDATE: ${parsed.toISOString().slice(0, 10)}`;
-}
-
-function toggleFavorite(repoUrl) {
-  if (state.favorites.has(repoUrl)) {
-    state.favorites.delete(repoUrl);
-  } else {
-    state.favorites.add(repoUrl);
-  }
-  saveFavorites(state.favorites);
-  renderRepos();
-}
-
 function renderRepos() {
   repoGrid.innerHTML = "";
-
   const term = normalize(state.searchTerm);
   const filtered = state.repos
     .filter((repo) => {
@@ -150,125 +110,158 @@ function renderRepos() {
     .sort(repoSort);
 
   if (filtered.length === 0) {
-    const message = term
-      ? `Nenhum repositorio encontrado para "${state.searchTerm}".`
-      : "Nenhum repositorio disponivel para sua conta.";
-    repoGrid.append(buildEmptyState(message));
+    if (state.repos.length === 0) {
+      repoGrid.append(buildEmptyState("Nenhum repositorio encontrado para esta organizacao."));
+      return;
+    }
+
+    repoGrid.append(buildEmptyState(`Nenhum repositorio encontrado para "${state.searchTerm}".`));
     return;
   }
 
   for (const repo of filtered) {
     const fragment = repoCardTemplate.content.cloneNode(true);
-    const card = fragment.querySelector(".repo-card");
     const link = fragment.querySelector(".repo-link");
     const name = fragment.querySelector(".repo-name");
     const description = fragment.querySelector(".repo-description");
     const meta = fragment.querySelector(".repo-meta");
     const favoriteButton = fragment.querySelector(".favorite-button");
+    const favoriteIcon = fragment.querySelector(".favorite-button i");
 
     link.href = repo.html_url;
     link.setAttribute("aria-label", `Abrir repositorio ${repo.name}`);
-    name.textContent = `> ${repo.name}`;
+    name.textContent = repo.name;
     description.textContent = repo.description || "Sem descricao.";
-    meta.textContent = `${repo.private ? "PRIVATE" : "PUBLIC"} | ${formatUpdatedDate(repo.updated_at)}`;
+    meta.textContent = repo.private ? "PRIVATE" : "PUBLIC";
 
     const isFavorite = state.favorites.has(repo.html_url);
-    favoriteButton.textContent = isFavorite ? "★" : "☆";
     favoriteButton.setAttribute("aria-pressed", String(isFavorite));
     favoriteButton.setAttribute(
       "aria-label",
       isFavorite ? `Remover ${repo.name} dos favoritos` : `Favoritar ${repo.name}`
     );
+    favoriteIcon.className = isFavorite ? "fa-solid fa-star" : "fa-regular fa-star";
 
     favoriteButton.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
       toggleFavorite(repo.html_url);
+      renderRepos();
     });
 
-    card.dataset.repoUrl = repo.html_url;
     repoGrid.append(fragment);
   }
 }
 
-async function loadRepositories() {
-  setStatus("Carregando repositorios...", "");
-  const payload = await fetchJson(`/api/repos?org=${encodeURIComponent(org)}`);
-  const repos = Array.isArray(payload?.repos) ? payload.repos : [];
-  state.repos = repos;
-  renderRepos();
-  const favoriteCount = repos.filter((repo) => state.favorites.has(repo.html_url)).length;
-  setStatus(
-    `${repos.length} repositorios carregados para ${org}. Favoritos no topo: ${favoriteCount}.`,
-    "ok"
-  );
-}
+function renderAuthButton() {
+  const { authenticated, user, oauthConfigured } = state.session;
+  authButton.disabled = !oauthConfigured && !authenticated;
 
-async function syncSession() {
-  const session = await fetchJson("/api/session");
-  if (!session?.authenticated) {
-    setLoggedOutUi();
+  if (authenticated) {
+    const login = user?.login ? ` @${user.login}` : "";
+    authButton.textContent = `logout${login}`;
+    authButton.setAttribute("aria-label", "Encerrar sessao do GitHub");
     return;
   }
 
-  setLoggedInUi(session.user ?? null);
-  const login = session.user?.login ? ` (${session.user.login})` : "";
-  setStatus(`Sessao ativa${login}.`, "ok");
-  await loadRepositories();
-}
+  authButton.textContent = "login";
+  authButton.setAttribute("aria-label", "Entrar com GitHub");
 
-async function handleLogout() {
-  try {
-    await fetchJson("/auth/logout", { method: "POST" });
-    setLoggedOutUi();
-  } catch (error) {
-    setStatus(error.message || "Falha ao encerrar sessao.", "error");
+  if (!oauthConfigured) {
+    authButton.title = "OAuth do GitHub nao configurado no servidor.";
+  } else {
+    authButton.removeAttribute("title");
   }
 }
 
+function getErrorMessageFromUrl() {
+  const url = new URL(window.location.href);
+  const error = url.searchParams.get("error");
+  if (!error) return "";
+
+  const messages = {
+    oauth_not_configured: "OAuth do GitHub nao configurado no servidor.",
+    oauth_missing_code: "Falha no retorno do GitHub (codigo ausente).",
+    oauth_state_invalid: "Falha de seguranca no login. Tente novamente.",
+    oauth_state_expired: "Tentativa de login expirada. Tente novamente.",
+    oauth_failed: "Nao foi possivel concluir o login com GitHub."
+  };
+
+  const message = messages[error] || "Falha no login com GitHub.";
+  url.searchParams.delete("error");
+  window.history.replaceState({}, document.title, url.toString());
+  return message;
+}
+
+async function syncSession() {
+  const payload = await fetchJson("/api/session");
+  state.session.authenticated = Boolean(payload?.authenticated);
+  state.session.user = payload?.user || null;
+  state.session.oauthConfigured = Boolean(payload?.oauth_configured);
+}
+
+async function loadRepositories() {
+  const payload = await fetchJson(`/api/repos?org=${encodeURIComponent(state.org)}`);
+  state.repos = Array.isArray(payload?.repos) ? payload.repos : [];
+  state.visibilityMode =
+    payload?.visibility_mode === "public_and_private" ? "public_and_private" : "public_only";
+}
+
+async function handleAuthButtonClick() {
+  if (state.session.authenticated) {
+    try {
+      await fetchJson("/auth/logout", { method: "POST" });
+      await syncSession();
+      await loadRepositories();
+      renderAuthButton();
+      renderRepos();
+      setStatus("Sessao encerrada. Exibindo apenas repositorios publicos.", "ok");
+    } catch (error) {
+      setStatus(error.message || "Falha ao encerrar sessao.", "error");
+    }
+    return;
+  }
+
+  if (!state.session.oauthConfigured) {
+    setStatus("OAuth do GitHub nao configurado no servidor.", "error");
+    return;
+  }
+
+  window.location.href = "/auth/login";
+}
+
 function bindEvents() {
+  authButton.addEventListener("click", () => {
+    handleAuthButtonClick();
+  });
+
   searchInput.addEventListener("input", () => {
     state.searchTerm = searchInput.value;
     renderRepos();
-  });
-
-  logoutButton.addEventListener("click", () => {
-    handleLogout();
-  });
-
-  refreshButton.addEventListener("click", async () => {
-    try {
-      await loadRepositories();
-    } catch (error) {
-      if (error.status === 401) {
-        setLoggedOutUi();
-        setStatus("Sua sessao expirou. Entre novamente.", "error");
-        return;
-      }
-      setStatus(error.message || "Falha ao atualizar repositorios.", "error");
-    }
   });
 }
 
 async function init() {
   bindEvents();
-  setLoggedOutUi();
 
-  if (!apiBase || apiBase.includes("REPLACE_WITH_WORKER_DOMAIN")) {
-    loginLink.hidden = true;
-    return;
+  const oauthError = getErrorMessageFromUrl();
+  if (oauthError) {
+    setStatus(oauthError, "error");
+  } else {
+    setStatus("Carregando repositorios...", "");
   }
-
-  loginLink.href = `${apiBase}/auth/login`;
 
   try {
     await syncSession();
+    await loadRepositories();
+
+    renderAuthButton();
+    renderRepos();
+    setStatus("", "");
   } catch (error) {
-    if (error.status === 401) {
-      setLoggedOutUi();
-      return;
-    }
-    setLoggedOutUi();
+    renderAuthButton();
+    renderRepos();
+    setStatus(error.message || "Falha ao carregar repositorios.", "error");
   }
 }
 

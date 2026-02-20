@@ -3,54 +3,53 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Studio Vibi | All Repositories</title>
-    <meta
-      name="description"
-      content="Catalogo de repositorios da StudioVibi com busca, favoritos e acesso por login GitHub."
+    <title>Studio Vibi | All</title>
+    <meta name="description" content="Lista de repositorios da StudioVibi com login opcional para privados." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
     />
-    <link rel="preload" href="./fonts/Minecraftia.ttf" as="font" type="font/ttf" crossorigin />
-    <link rel="stylesheet" href="./styles.css" />
-    <link rel="icon" href="../favicon.ico" />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
+    />
+    <link rel="preload" href="/fonts/Minecraftia.ttf" as="font" type="font/ttf" crossorigin />
+    <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <div class="page">
-      <div id="top-actions" class="top-actions" hidden>
-        <button id="refresh-button" class="tiny-action" type="button">&gt; atualizar</button>
-        <button id="logout-button" class="tiny-action" type="button">&gt; sair</button>
-      </div>
+      <button id="auth-button" class="tiny-action auth-button" type="button">login</button>
 
-      <section id="auth-gate" class="auth-gate">
-        <a id="login-link" class="login-main" href="#">&gt; LOGAR COM GITHUB</a>
+      <header class="header">
+        <h1 class="title">STUDIO VIBI / ALL</h1>
+
+        <label class="search-group" for="search-input">
+          <span class="search-label">&gt; buscar repositorio</span>
+          <input
+            id="search-input"
+            class="search-input"
+            type="search"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="digite nome ou descricao"
+          />
+        </label>
+
+        <p id="status-text" class="status-text" role="status" aria-live="polite"></p>
+      </header>
+
+      <section>
+        <div id="repo-grid" class="repo-grid" aria-live="polite"></div>
       </section>
-
-      <main id="app-shell" class="app-shell" hidden>
-        <header class="header">
-          <h1 class="title">STUDIO VIBI / ALL</h1>
-
-          <label class="search-group" for="search-input">
-            <span class="search-label">&gt; buscar repositorio</span>
-            <input
-              id="search-input"
-              class="search-input"
-              type="search"
-              autocomplete="off"
-              spellcheck="false"
-              placeholder="digite nome ou descricao"
-            />
-          </label>
-
-          <p id="status-text" class="status-text" role="status" aria-live="polite"></p>
-        </header>
-
-        <section>
-          <div id="repo-grid" class="repo-grid" aria-live="polite"></div>
-        </section>
-      </main>
     </div>
 
     <template id="repo-card-template">
       <article class="repo-card">
-        <button class="favorite-button" type="button" aria-pressed="false"></button>
+        <button class="favorite-button" type="button" aria-label="Favoritar repositorio" aria-pressed="false">
+          <i class="fa-regular fa-star" aria-hidden="true"></i>
+        </button>
         <a class="repo-link" target="_blank" rel="noopener noreferrer">
           <span class="repo-name"></span>
           <span class="repo-description"></span>
@@ -59,12 +58,6 @@
       </article>
     </template>
 
-    <script>
-      window.STUDIOVIBI_LINKS_CONFIG = {
-        apiBase: "https://REPLACE_WITH_WORKER_DOMAIN",
-        org: "StudioVibi"
-      };
-    </script>
-    <script type="module" src="./app.js"></script>
+    <script type="module" src="/app.js"></script>
   </body>
 </html>
