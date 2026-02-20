@@ -1,3 +1,15 @@
+// Static mode — calls the GitHub public API directly so the app works on
+// GitHub Pages (or any static host) without a backend server.
+//
+// Limitations:
+//   - Only public repositories are listed
+//   - No login / logout functionality (OAuth requires a server)
+//   - GitHub public API rate limit: 60 requests / hour per IP
+//   - No private repo access
+//
+// To support private repos, auth, and higher rate limits in the future,
+// reconnect the app to a backend (see server.ts / worker/).
+
 const DEFAULT_ORG = "StudioVibi";
 const FAVORITES_STORAGE_KEY = "studiovibi:all:favorites:v1";
 
@@ -49,11 +61,8 @@ function setStatus(message, status = "") {
   }
 }
 
-async function fetchJson(path, init = {}) {
-  const response = await fetch(path, {
-    credentials: "include",
-    ...init
-  });
+async function fetchJson(url, init = {}) {
+  const response = await fetch(url, init);
 
   let payload = null;
   const contentType = response.headers.get("content-type") || "";
@@ -193,41 +202,37 @@ function getErrorMessageFromUrl() {
   return message;
 }
 
-async function syncSession() {
-  const payload = await fetchJson("/api/session");
-  state.session.authenticated = Boolean(payload?.authenticated);
-  state.session.user = payload?.user || null;
-  state.session.oauthConfigured = Boolean(payload?.oauth_configured);
+function syncSession() {
+  state.session.authenticated = false;
+  state.session.user = null;
+  state.session.oauthConfigured = false;
 }
 
 async function loadRepositories() {
-  const payload = await fetchJson(`/api/repos?org=${encodeURIComponent(state.org)}`);
-  state.repos = Array.isArray(payload?.repos) ? payload.repos : [];
-  state.visibilityMode =
-    payload?.visibility_mode === "public_and_private" ? "public_and_private" : "public_only";
+  const allRepos = [];
+  let page = 1;
+
+  while (true) {
+    const url = `https://api.github.com/orgs/${encodeURIComponent(state.org)}/repos?per_page=100&page=${page}`;
+    const repos = await fetchJson(url, {
+      headers: { Accept: "application/vnd.github.v3+json" }
+    });
+
+    if (!Array.isArray(repos) || repos.length === 0) break;
+    allRepos.push(...repos);
+    if (repos.length < 100) break;
+    page++;
+  }
+
+  state.repos = allRepos;
+  state.visibilityMode = "public_only";
 }
 
 async function handleAuthButtonClick() {
-  if (state.session.authenticated) {
-    try {
-      await fetchJson("/auth/logout", { method: "POST" });
-      await syncSession();
-      await loadRepositories();
-      renderAuthButton();
-      renderRepos();
-      setStatus("Sessao encerrada. Exibindo apenas repositorios publicos.", "ok");
-    } catch (error) {
-      setStatus(error.message || "Falha ao encerrar sessao.", "error");
-    }
-    return;
-  }
-
   if (!state.session.oauthConfigured) {
     setStatus("OAuth do GitHub nao configurado no servidor.", "error");
     return;
   }
-
-  window.location.href = "/auth/login";
 }
 
 function bindEvents() {
@@ -252,7 +257,7 @@ async function init() {
   }
 
   try {
-    await syncSession();
+    syncSession();
     await loadRepositories();
 
     renderAuthButton();
