@@ -1,0 +1,9 @@
+name = "studiovibi-links-worker"
+main = "src/index.js"
+compatibility_date = "2025-01-15"
+
+[vars]
+ALLOWED_ORG = "StudioVibi"
+FRONTEND_ORIGIN = "https://studiovibi.github.io"
+REDIRECT_URI = "https://REPLACE_WITH_WORKER_DOMAIN/auth/callback"
+SESSION_TTL_SECONDS = "28800"
